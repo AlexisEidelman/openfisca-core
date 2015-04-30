@@ -67,34 +67,6 @@ xml_json_formats = (
 
 # Level 1 converters
 
-def make_validate_values_xml_json_dates(require_consecutive_dates = False):
-    def validate_values_xml_json_dates(values_xml_json, state = None):
-        if not values_xml_json:
-            return values_xml_json, None
-        if state is None:
-            state = conv.default_state
-
-        errors = {}
-        for index, value_xml_json in enumerate(values_xml_json):
-            if value_xml_json['deb'] > value_xml_json['fin']:
-                errors[index] = dict(fin = state._(u"Last date must be greater than first date"))
-
-        sorted_values_xml_json = sorted(values_xml_json, key = lambda value_xml_json: value_xml_json['deb'],
-            reverse = True)
-        next_value_xml_json = sorted_values_xml_json[0]
-        for index, value_xml_json in enumerate(itertools.islice(sorted_values_xml_json, 1, None)):
-            next_date_str = (datetime.date(*(int(fragment) for fragment in value_xml_json['fin'].split('-')))
-                + datetime.timedelta(days = 1)).isoformat()
-            if require_consecutive_dates and next_date_str < next_value_xml_json['deb']:
-                errors.setdefault(index, {})['deb'] = state._(u"Dates of values are not consecutive")
-            elif next_date_str > next_value_xml_json['deb']:
-                errors.setdefault(index, {})['deb'] = state._(u"Dates of values overlap")
-            next_value_xml_json = value_xml_json
-
-        return sorted_values_xml_json, errors or None
-
-    return validate_values_xml_json_dates
-
 
 def translate_xml_element_to_json_item(xml_element):
     json_element = collections.OrderedDict()
@@ -434,7 +406,7 @@ def validate_parameter_xml_json(parameter, state = None):
                         validate_value_xml_json,
                         drop_none_items = True,
                         ),
-                    make_validate_values_xml_json_dates(require_consecutive_dates = True),
+                    validate_values_xml_json_dates,
                     conv.empty_to_none,
                     conv.not_none,
                     ),
@@ -594,7 +566,10 @@ def validate_brackets_xml_json_dates(brackets, state = None):
             values_xml_json = values_holder_xml_json[0]['VALUE'] if values_holder_xml_json else []
             for value_xml_json in values_xml_json:
                 from_date = datetime.date(*(int(fragment) for fragment in value_xml_json['deb'].split('-')))
-                to_date = datetime.date(*(int(fragment) for fragment in value_xml_json['fin'].split('-')))
+                # Note: to_date may be None for first valid segment.
+                to_date_str = value_xml_json.get('fin')
+                to_date = None if to_date_str is None \
+                    else datetime.date(*(int(fragment) for fragment in to_date_str.split('-')))
                 if valid_segments and valid_segments[-1][0] == to_date + datetime.timedelta(days = 1):
                     valid_segments[-1] = (from_date, valid_segments[-1][1])
                 else:
@@ -604,9 +579,14 @@ def validate_brackets_xml_json_dates(brackets, state = None):
             values_xml_json = values_holder_xml_json[0]['VALUE'] if values_holder_xml_json else []
             for value_index, value_xml_json in enumerate(values_xml_json):
                 from_date = datetime.date(*(int(fragment) for fragment in value_xml_json['deb'].split('-')))
-                to_date = datetime.date(*(int(fragment) for fragment in value_xml_json['fin'].split('-')))
+                # Note: to_date may be None for first value_xml_json.
+                to_date_str = value_xml_json.get('fin')
+                to_date = None if to_date_str is None \
+                    else datetime.date(*(int(fragment) for fragment in to_date_str.split('-')))
                 for valid_segment in valid_segments:
-                    if valid_segment[0] <= from_date and to_date <= valid_segment[1]:
+                    valid_to_date = valid_segment[1]
+                    if valid_segment[0] <= from_date and (
+                            valid_to_date is None or to_date is not None and to_date <= valid_to_date):
                         break
                 else:
                     errors.setdefault(bracket_index, {}).setdefault(key, {}).setdefault(0, {}).setdefault('VALUE',
@@ -622,7 +602,10 @@ def validate_brackets_xml_json_dates(brackets, state = None):
         values_xml_json = values_holder_xml_json[0]['VALUE'] if values_holder_xml_json else []
         for value_xml_json in values_xml_json:
             from_date = datetime.date(*(int(fragment) for fragment in value_xml_json['deb'].split('-')))
-            to_date = datetime.date(*(int(fragment) for fragment in value_xml_json['fin'].split('-')))
+            # Note: to_date may be None for first amount segment.
+            to_date_str = value_xml_json.get('fin')
+            to_date = None if to_date_str is None \
+                else datetime.date(*(int(fragment) for fragment in to_date_str.split('-')))
             if amount_segments and amount_segments[-1][0] == to_date + datetime.timedelta(days = 1):
                 amount_segments[-1] = (from_date, amount_segments[-1][1])
             else:
@@ -633,7 +616,10 @@ def validate_brackets_xml_json_dates(brackets, state = None):
         values_xml_json = values_holder_xml_json[0]['VALUE'] if values_holder_xml_json else []
         for value_xml_json in values_xml_json:
             from_date = datetime.date(*(int(fragment) for fragment in value_xml_json['deb'].split('-')))
-            to_date = datetime.date(*(int(fragment) for fragment in value_xml_json['fin'].split('-')))
+            # Note: to_date may be None for first rate segment.
+            to_date_str = value_xml_json.get('fin')
+            to_date = None if to_date_str is None \
+                else datetime.date(*(int(fragment) for fragment in to_date_str.split('-')))
             if rate_segments and rate_segments[-1][0] == to_date + datetime.timedelta(days = 1):
                 rate_segments[-1] = (from_date, rate_segments[-1][1])
             else:
@@ -644,7 +630,10 @@ def validate_brackets_xml_json_dates(brackets, state = None):
         values_xml_json = values_holder_xml_json[0]['VALUE'] if values_holder_xml_json else []
         for value_xml_json in values_xml_json:
             from_date = datetime.date(*(int(fragment) for fragment in value_xml_json['deb'].split('-')))
-            to_date = datetime.date(*(int(fragment) for fragment in value_xml_json['fin'].split('-')))
+            # Note: to_date may be None for first threshold segment.
+            to_date_str = value_xml_json.get('fin')
+            to_date = None if to_date_str is None \
+                else datetime.date(*(int(fragment) for fragment in to_date_str.split('-')))
             if threshold_segments and threshold_segments[-1][0] == to_date + datetime.timedelta(days = 1):
                 threshold_segments[-1] = (from_date, threshold_segments[-1][1])
             else:
@@ -654,9 +643,14 @@ def validate_brackets_xml_json_dates(brackets, state = None):
         values_xml_json = values_holder_xml_json[0]['VALUE'] if values_holder_xml_json else []
         for value_index, value_xml_json in enumerate(values_xml_json):
             from_date = datetime.date(*(int(fragment) for fragment in value_xml_json['deb'].split('-')))
-            to_date = datetime.date(*(int(fragment) for fragment in value_xml_json['fin'].split('-')))
+            # Note: to_date may be None for first value_xml_json.
+            to_date_str = value_xml_json.get('fin')
+            to_date = None if to_date_str is None \
+                else datetime.date(*(int(fragment) for fragment in to_date_str.split('-')))
             for rate_segment in rate_segments:
-                if rate_segment[0] <= from_date and to_date <= rate_segment[1]:
+                rate_to_date = rate_segment[1]
+                if rate_segment[0] <= from_date and (
+                        rate_to_date is None or to_date is not None and to_date <= rate_to_date):
                     break
             else:
                 errors.setdefault(bracket_index, {}).setdefault('ASSIETTE', {}).setdefault(0, {}).setdefault('VALUE',
@@ -666,9 +660,14 @@ def validate_brackets_xml_json_dates(brackets, state = None):
         values_xml_json = values_holder_xml_json[0]['VALUE'] if values_holder_xml_json else []
         for value_index, value_xml_json in enumerate(values_xml_json):
             from_date = datetime.date(*(int(fragment) for fragment in value_xml_json['deb'].split('-')))
-            to_date = datetime.date(*(int(fragment) for fragment in value_xml_json['fin'].split('-')))
+            # Note: to_date may be None for first value_xml_json.
+            to_date_str = value_xml_json.get('fin')
+            to_date = None if to_date_str is None \
+                else datetime.date(*(int(fragment) for fragment in to_date_str.split('-')))
             for threshold_segment in threshold_segments:
-                if threshold_segment[0] <= from_date and to_date <= threshold_segment[1]:
+                threshold_to_date = threshold_segment[1]
+                if threshold_segment[0] <= from_date and (
+                        threshold_to_date is None or to_date is not None and to_date <= threshold_to_date):
                     break
             else:
                 errors.setdefault(bracket_index, {}).setdefault('TAUX', {}).setdefault(0, {}).setdefault('VALUE',
@@ -678,13 +677,20 @@ def validate_brackets_xml_json_dates(brackets, state = None):
         values_xml_json = values_holder_xml_json[0]['VALUE'] if values_holder_xml_json else []
         for value_index, value_xml_json in enumerate(values_xml_json):
             from_date = datetime.date(*(int(fragment) for fragment in value_xml_json['deb'].split('-')))
-            to_date = datetime.date(*(int(fragment) for fragment in value_xml_json['fin'].split('-')))
+            # Note: to_date may be None for first value_xml_json.
+            to_date_str = value_xml_json.get('fin')
+            to_date = None if to_date_str is None \
+                else datetime.date(*(int(fragment) for fragment in to_date_str.split('-')))
             for rate_segment in rate_segments:
-                if rate_segment[0] <= from_date and to_date <= rate_segment[1]:
+                rate_to_date = rate_segment[1]
+                if rate_segment[0] <= from_date and (
+                        rate_to_date is None or to_date is not None and to_date <= rate_to_date):
                     break
             else:
                 for amount_segment in amount_segments:
-                    if amount_segment[0] <= from_date and to_date <= amount_segment[1]:
+                    amount_to_date = amount_segment[1]
+                    if amount_segment[0] <= from_date and (
+                            amount_to_date is None or to_date is not None and to_date <= amount_to_date):
                         break
                 else:
                     errors.setdefault(bracket_index, {}).setdefault('SEUIL', {}).setdefault(0, {}).setdefault('VALUE',
@@ -760,7 +766,6 @@ def validate_value_xml_json(value, state = None):
                     conv.test_isinstance(basestring),
                     conv.iso8601_input_to_date,
                     conv.date_to_iso8601_str,
-                    conv.not_none,
                     ),
                 format = conv.pipe(
                     conv.test_isinstance(basestring),
@@ -802,6 +807,34 @@ def validate_value_xml_json(value, state = None):
     return validated_value, errors
 
 
+def validate_values_xml_json_dates(values_xml_json, state = None):
+    if not values_xml_json:
+        return values_xml_json, None
+    if state is None:
+        state = conv.default_state
+
+    errors = {}
+    for index, value_xml_json in enumerate(values_xml_json):
+        to_date_str = value_xml_json.get('fin')
+        if to_date_str is not None and value_xml_json['deb'] > to_date_str:
+            errors[index] = dict(fin = state._(u"Last date must be greater than first date"))
+
+    sorted_values_xml_json = sorted(values_xml_json, key = lambda value_xml_json: value_xml_json['deb'],
+        reverse = True)
+    next_value_xml_json = sorted_values_xml_json[0]
+    for index, value_xml_json in enumerate(itertools.islice(sorted_values_xml_json, 1, None)):
+        to_date_str = value_xml_json.get('fin')
+        if to_date_str is None:
+            errors.setdefault(index, {})['fin'] = state._(u"Missing value")
+        next_date_str = (datetime.date(*(int(fragment) for fragment in to_date_str.split('-')))
+            + datetime.timedelta(days = 1)).isoformat()
+        if next_date_str > next_value_xml_json['deb']:
+            errors.setdefault(index, {})['deb'] = state._(u"Dates of values overlap")
+        next_value_xml_json = value_xml_json
+
+    return sorted_values_xml_json, errors or None
+
+
 validate_values_holder_xml_json = conv.struct(
     dict(
         VALUE = conv.pipe(
@@ -810,7 +843,7 @@ validate_values_holder_xml_json = conv.struct(
                 validate_value_xml_json,
                 drop_none_items = True,
                 ),
-            make_validate_values_xml_json_dates(require_consecutive_dates = False),
+            validate_values_xml_json_dates,
             conv.empty_to_none,
             conv.not_none,
             ),
